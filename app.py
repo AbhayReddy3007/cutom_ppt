@@ -74,16 +74,30 @@ Slide 1: <Title>
     outline_text = call_gemini(prompt)
     return parse_points(outline_text)
 
-def summarize_long_text(full_text: str) -> str:
-    chunks = split_text(full_text)
-    if len(chunks) <= 1:
-        return call_gemini(f"Summarize the following text in detail:\n\n{full_text}")
-    partial_summaries = []
-    for idx, ch in enumerate(chunks, start=1):
-        mapped = call_gemini(f"Summarize this part of a longer document:\n\n{ch}")
-        partial_summaries.append(f"Chunk {idx}:\n{mapped.strip()}")
-    combined = "\n\n".join(partial_summaries)
-    return call_gemini(f"Combine these summaries into one clean, well-structured summary:\n\n{combined}")
+def edit_outline_with_feedback(outline, feedback: str):
+    outline_text = "\n".join(
+        [f"Slide {i+1}: {s['title']}\n{s['description']}" for i, s in enumerate(outline['slides'])]
+    )
+    prompt = f"""
+    You are an assistant improving a PowerPoint outline.
+
+    Current Outline:
+    Title: {outline['title']}
+    {outline_text}
+
+    Feedback:
+    {feedback}
+
+    Task:
+    - Apply the feedback to refine/improve the outline.
+    - Return the updated outline with the same format:
+      Slide 1: <Title>
+      - Bullet
+      - Bullet
+    - Do NOT add a title slide (I will handle it).
+    """
+    updated_points = parse_points(call_gemini(prompt))
+    return {"title": outline['title'], "slides": updated_points}
 
 def split_text(text: str, chunk_size: int = 8000, overlap: int = 300):
     if not text: return []
@@ -94,6 +108,17 @@ def split_text(text: str, chunk_size: int = 8000, overlap: int = 300):
         if end == n: break
         start = max(0, end - overlap)
     return chunks
+
+def summarize_long_text(full_text: str) -> str:
+    chunks = split_text(full_text)
+    if len(chunks) <= 1:
+        return call_gemini(f"Summarize the following text in detail:\n\n{full_text}")
+    partial_summaries = []
+    for idx, ch in enumerate(chunks, start=1):
+        mapped = call_gemini(f"Summarize this part of a longer document:\n\n{ch}")
+        partial_summaries.append(f"Chunk {idx}:\n{mapped.strip()}")
+    combined = "\n\n".join(partial_summaries)
+    return call_gemini(f"Combine these summaries into one clean, well-structured summary:\n\n{combined}")
 
 def extract_text(path: str, filename: str) -> str:
     name = filename.lower()
@@ -213,7 +238,7 @@ if prompt := st.chat_input("💬 Type a message..."):
             st.session_state.messages.append(("assistant",reply))
     st.rerun()
 
-# Outline + PPT customization
+# Outline + PPT customization + Feedback
 if st.session_state.outline_chat:
     outline = st.session_state.outline_chat
     st.subheader(f"📝 Preview Outline: {outline['title']}")
@@ -222,6 +247,8 @@ if st.session_state.outline_chat:
             st.markdown(slide["description"].replace("\n","\n\n"))
 
     new_title = st.text_input("📌 Edit Title", value=outline.get("title","Untitled"))
+    feedback_box = st.text_area("✏️ Feedback for outline (optional):")
+
     st.subheader("🎨 Customize PPT Style")
     col1, col2 = st.columns(2)
     with col1: title_size = st.number_input("📌 Title Font Size",10,100,30)
@@ -232,13 +259,28 @@ if st.session_state.outline_chat:
     with col4: text_color = st.color_picker("📝 Text Color","#282828")
     with col5: bg_color = st.color_picker("🌆 Background Color","#FFFFFF")
 
-    if st.button("✅ Generate PPT"):
-        with st.spinner("Generating PPT..."):
-            filename = f"{sanitize_filename(new_title)}.pptx"
-            create_ppt(new_title, outline["slides"], filename,
-                       title_size=int(title_size), text_size=int(text_size),
-                       font=font_choice, title_color=title_color,
-                       text_color=text_color, background_color=bg_color)
-            with open(filename,"rb") as f:
-                st.download_button("⬇️ Download PPT", data=f, file_name=filename,
-                                   mime="application/vnd.openxmlformats-officedocument.presentationml.presentation")
+    col6, col7 = st.columns(2)
+
+    with col6:
+        if st.button("🔄 Apply Feedback"):
+            with st.spinner("Updating outline with feedback..."):
+                try:
+                    updated_outline = edit_outline_with_feedback(outline, feedback_box)
+                    updated_outline["title"] = new_title.strip() if new_title else updated_outline["title"]
+                    st.session_state.outline_chat = updated_outline
+                    st.success("✅ Outline updated with feedback!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Feedback error: {e}")
+
+    with col7:
+        if st.button("✅ Generate PPT"):
+            with st.spinner("Generating PPT..."):
+                filename = f"{sanitize_filename(new_title)}.pptx"
+                create_ppt(new_title, outline["slides"], filename,
+                           title_size=int(title_size), text_size=int(text_size),
+                           font=font_choice, title_color=title_color,
+                           text_color=text_color, background_color=bg_color)
+                with open(filename,"rb") as f:
+                    st.download_button("⬇️ Download PPT", data=f, file_name=filename,
+                                       mime="application/vnd.openxmlformats-officedocument.presentationml.presentation")
