@@ -10,7 +10,7 @@ from pptx.enum.text import PP_ALIGN, MSO_AUTO_SIZE, MSO_VERTICAL_ANCHOR
 GEMINI_API_KEY = "AIzaSyBtah4ZmuiVkSrJABE8wIjiEgunGXAbT3Q"  # 🔑 Hardcoded Gemini API key
 TEXT_MODEL_NAME = "gemini-2.0-flash"
 
-# ---------------- HELPERS ----------------
+# ---------------- GEMINI HELPERS ----------------
 def call_gemini(prompt: str) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{TEXT_MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -21,6 +21,13 @@ def call_gemini(prompt: str) -> str:
         return data["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as e:
         return f"⚠️ Gemini API error: {e}"
+
+def extract_slide_count(description: str, default=None):
+    m = re.search(r"(\d+)\s*(slides?|sections?|pages?)", description, re.IGNORECASE)
+    if m:
+        total = int(m.group(1))
+        return max(1, total - 1)
+    return None if default is None else default - 1
 
 def parse_points(points_text: str):
     points, current_title, current_content = [], None, []
@@ -46,16 +53,47 @@ def parse_points(points_text: str):
     return points
 
 def generate_outline(description: str):
-    prompt = f"""Create a PowerPoint outline on: {description}.
-Each slide should have a short title and 3–4 bullet points.
-Format strictly like this:
+    num_slides = extract_slide_count(description, default=None)
+    if num_slides:
+        prompt = f"""Create a PowerPoint outline on: {description}.
+Generate exactly {num_slides} content slides (⚠️ excluding the title slide).
+Start from Slide 1 as the first *content slide*.
+Format:
 Slide 1: <Title>
 - Bullet
+- Bullet
+"""
+    else:
+        prompt = f"""Create a PowerPoint outline on: {description}.
+Each slide should have a short title and 3–4 bullet points.
+Format:
+Slide 1: <Title>
 - Bullet
 - Bullet
 """
     outline_text = call_gemini(prompt)
     return parse_points(outline_text)
+
+def summarize_long_text(full_text: str) -> str:
+    chunks = split_text(full_text)
+    if len(chunks) <= 1:
+        return call_gemini(f"Summarize the following text in detail:\n\n{full_text}")
+    partial_summaries = []
+    for idx, ch in enumerate(chunks, start=1):
+        mapped = call_gemini(f"Summarize this part of a longer document:\n\n{ch}")
+        partial_summaries.append(f"Chunk {idx}:\n{mapped.strip()}")
+    combined = "\n\n".join(partial_summaries)
+    return call_gemini(f"Combine these summaries into one clean, well-structured summary:\n\n{combined}")
+
+def split_text(text: str, chunk_size: int = 8000, overlap: int = 300):
+    if not text: return []
+    chunks, start, n = [], 0, len(text)
+    while start < n:
+        end = min(start + chunk_size, n)
+        chunks.append(text[start:end])
+        if end == n: break
+        start = max(0, end - overlap)
+    return chunks
 
 def extract_text(path: str, filename: str) -> str:
     name = filename.lower()
@@ -77,27 +115,6 @@ def extract_text(path: str, filename: str) -> str:
         with open(path,"r",encoding="utf-8",errors="ignore") as f: return f.read()
     return ""
 
-def split_text(text: str, chunk_size: int = 8000, overlap: int = 300):
-    if not text: return []
-    chunks, start, n = [], 0, len(text)
-    while start < n:
-        end = min(start + chunk_size, n)
-        chunks.append(text[start:end])
-        if end == n: break
-        start = max(0, end - overlap)
-    return chunks
-
-def summarize_long_text(full_text: str) -> str:
-    chunks = split_text(full_text)
-    if len(chunks) <= 1:
-        return call_gemini(f"Summarize the following text in detail:\n\n{full_text}")
-    partial_summaries = []
-    for idx,ch in enumerate(chunks, start=1):
-        mapped = call_gemini(f"Summarize this part of a longer document:\n\n{ch}")
-        partial_summaries.append(f"Chunk {idx}:\n{mapped.strip()}")
-    combined = "\n\n".join(partial_summaries)
-    return call_gemini(f"Combine these summaries into one clean, well-structured summary:\n\n{combined}")
-
 def sanitize_filename(name: str) -> str:
     return re.sub(r'[^A-Za-z0-9_.-]', '_', name)
 
@@ -109,6 +126,7 @@ def hex_to_rgb(hex_color: str):
     hex_color = hex_color.lstrip("#")
     return RGBColor(int(hex_color[0:2],16), int(hex_color[2:4],16), int(hex_color[4:6],16))
 
+# ---------------- PPT GENERATOR ----------------
 def create_ppt(title, points, filename="output.pptx", title_size=30, text_size=22,
                font="Calibri", title_color="#5E2A84", text_color="#282828", background_color="#FFFFFF"):
     prs = Presentation()
@@ -152,13 +170,13 @@ defaults = {"messages": [], "outline_chat": None, "summary_text": None, "summary
 for k,v in defaults.items():
     if k not in st.session_state: st.session_state[k]=v
 
-# Display chat history
+# Chat history
 for role, content in st.session_state.messages: 
     with st.chat_message(role): st.markdown(content)
 for role, content in st.session_state.doc_chat_history:
     with st.chat_message(role): st.markdown(content)
 
-# ---------------- FILE UPLOAD ----------------
+# Upload
 uploaded_file = st.file_uploader("📂 Upload a document", type=["pdf","docx","txt"])
 if uploaded_file:
     with st.spinner("Processing uploaded file..."):
@@ -173,7 +191,7 @@ if uploaded_file:
         else:
             st.error("❌ Unsupported, empty, or unreadable file.")
 
-# ---------------- CHAT ----------------
+# Chat input
 if prompt := st.chat_input("💬 Type a message..."):
     if st.session_state.summary_text:
         if any(w in prompt.lower() for w in ["ppt","slides","presentation"]):
@@ -195,17 +213,32 @@ if prompt := st.chat_input("💬 Type a message..."):
             st.session_state.messages.append(("assistant",reply))
     st.rerun()
 
-# ---------------- OUTLINE PREVIEW ----------------
+# Outline + PPT customization
 if st.session_state.outline_chat:
     outline = st.session_state.outline_chat
     st.subheader(f"📝 Preview Outline: {outline['title']}")
     for idx,slide in enumerate(outline["slides"],start=1):
         with st.expander(f"Slide {idx}: {slide['title']}",expanded=False):
             st.markdown(slide["description"].replace("\n","\n\n"))
+
+    new_title = st.text_input("📌 Edit Title", value=outline.get("title","Untitled"))
+    st.subheader("🎨 Customize PPT Style")
+    col1, col2 = st.columns(2)
+    with col1: title_size = st.number_input("📌 Title Font Size",10,100,30)
+    with col2: text_size = st.number_input("📝 Text Font Size",8,60,22)
+    font_choice = st.selectbox("🔤 Font Family",["Calibri","Arial","Times New Roman","Verdana","Georgia","Helvetica","Comic Sans MS"])
+    col3, col4, col5 = st.columns(3)
+    with col3: title_color = st.color_picker("🎨 Title Color","#5E2A84")
+    with col4: text_color = st.color_picker("📝 Text Color","#282828")
+    with col5: bg_color = st.color_picker("🌆 Background Color","#FFFFFF")
+
     if st.button("✅ Generate PPT"):
         with st.spinner("Generating PPT..."):
-            filename = f"{sanitize_filename(outline['title'])}.pptx"
-            create_ppt(outline['title'], outline["slides"], filename)
+            filename = f"{sanitize_filename(new_title)}.pptx"
+            create_ppt(new_title, outline["slides"], filename,
+                       title_size=int(title_size), text_size=int(text_size),
+                       font=font_choice, title_color=title_color,
+                       text_color=text_color, background_color=bg_color)
             with open(filename,"rb") as f:
                 st.download_button("⬇️ Download PPT", data=f, file_name=filename,
                                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation")
