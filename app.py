@@ -22,6 +22,17 @@ def call_gemini(prompt: str) -> str:
     except Exception as e:
         return f"⚠️ Gemini API error: {e}"
 
+def generate_title(summary: str) -> str:
+    prompt = f"""Read the following summary and create a short, clear, presentation-style title.
+- Keep it under 10 words
+- Do not include birth dates, long sentences, or excessive details
+- Just give a clean title, like a presentation heading
+
+Summary:
+{summary}
+"""
+    return call_gemini(prompt).strip()
+
 def extract_slide_count(description: str, default=None):
     m = re.search(r"(\d+)\s*(slides?|sections?|pages?)", description, re.IGNORECASE)
     if m:
@@ -210,7 +221,7 @@ if uploaded_file:
         text = extract_text(tmp_path, uploaded_file.name); os.remove(tmp_path)
         if text.strip():
             summary = summarize_long_text(text)
-            title = call_gemini(f"Generate a short title for this summary:\n{summary}")
+            title = generate_title(summary)
             st.session_state.summary_text, st.session_state.summary_title = summary, title
             st.success(f"✅ Uploaded! Suggested Title: **{title}**")
         else:
@@ -231,8 +242,9 @@ if prompt := st.chat_input("💬 Type a message..."):
         st.session_state.messages.append(("user",prompt))
         if "ppt" in prompt.lower():
             slides = generate_outline(prompt)
-            st.session_state.outline_chat = {"title":"Generated PPT","slides":slides}
-            st.session_state.messages.append(("assistant","✅ PPT outline generated!"))
+            title = generate_title(prompt)
+            st.session_state.outline_chat = {"title": title, "slides": slides}
+            st.session_state.messages.append(("assistant", f"✅ PPT outline generated! Title: **{title}**"))
         else:
             reply = call_gemini(prompt)
             st.session_state.messages.append(("assistant",reply))
