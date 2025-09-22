@@ -199,8 +199,8 @@ def create_ppt(title, points, filename="output.pptx", title_size=30, text_size=2
     prs.save(filename); return filename
 
 # ---------------- STREAMLIT UI ----------------
-st.set_page_config(page_title="AI Productivity Suite", layout="wide")
-st.title("AI Productivity Suite")
+st.set_page_config(page_title="PPT Generator", layout="wide")
+st.title("PPT Generator")
 
 defaults = {"messages": [], "outline_chat": None, "summary_text": None, "summary_title": None, "doc_chat_history": []}
 for k,v in defaults.items():
