@@ -15,7 +15,7 @@ def call_gemini(prompt: str) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{TEXT_MODEL_NAME}:generateContent?key={GEMINI_API_KEY}"
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     try:
-        resp = requests.post(url, json=payload, timeout=60)
+        resp = requests.post(url, json=payload, timeout=120)
         resp.raise_for_status()
         data = resp.json()
         return data["candidates"][0]["content"]["parts"][0]["text"].strip()
@@ -120,17 +120,88 @@ def split_text(text: str, chunk_size: int = 8000, overlap: int = 300):
         start = max(0, end - overlap)
     return chunks
 
+# ---------------- UPDATED: Comprehensive summarization ----------------
 def summarize_long_text(full_text: str) -> str:
-    chunks = split_text(full_text)
-    if len(chunks) <= 1:
-        return call_gemini(f"Summarize the following text in detail:\n\n{full_text}")
-    partial_summaries = []
-    for idx, ch in enumerate(chunks, start=1):
-        mapped = call_gemini(f"Summarize this part of a longer document:\n\n{ch}")
-        partial_summaries.append(f"Chunk {idx}:\n{mapped.strip()}")
-    combined = "\n\n".join(partial_summaries)
-    return call_gemini(f"Combine these summaries into one clean, well-structured summary:\n\n{combined}")
+    """
+    Produces a comprehensive, exhaustive, and structured summary of the entire document.
+    - If the document is short: analyze whole document directly with a single, thorough prompt.
+    - If the document is long: split into chunks, produce detailed analysis per chunk, then combine
+      into one unified, exhaustive summary that preserves all important points, structure, facts,
+      and nuances.
+    """
+    if not full_text or not full_text.strip():
+        return ""
 
+    chunks = split_text(full_text, chunk_size=8000, overlap=400)
+
+    # If it's small, ask Gemini to produce a single exhaustive analysis
+    if len(chunks) <= 1:
+        prompt = f"""
+Read and analyze the entire document below thoroughly. Produce a comprehensive, detailed, and exhaustive summary that preserves every important point, fact, argument, example, and nuance from the text. Do NOT oversimplify or omit material. The output should include:
+
+1) An Executive Summary (one paragraph) that captures the overall purpose and conclusions.
+2) A clear reconstruction of the document's structure with headings (e.g., Introduction, Methods/Body, Results/Arguments, Examples, Discussion, Conclusion).
+3) For each section: a long, detailed section-by-section summary with important points, supporting evidence, examples, and any arguments or lines of reasoning fully preserved.
+4) A consolidated list of Key Facts & Figures (as bullets), including any numbers, dates, named items, or data points.
+5) Notable quotes or short excerpts (if present), labelled with approximate location.
+6) Any assumptions, limitations, or open questions raised by the document.
+7) A final 'Key takeaways' bullet list summarizing the most critical items.
+
+Be exhaustive but keep the final output readable and well-structured. Document:
+----------------
+{full_text}
+----------------
+"""
+        return call_gemini(prompt).strip()
+
+    # If long, produce detailed analysis for each chunk then combine.
+    partial_analyses = []
+    for idx, ch in enumerate(chunks, start=1):
+        prompt_chunk = f"""
+You will be given CHUNK {idx} of a larger document. Carefully analyze this chunk and produce:
+A) A detailed, exhaustive summary of CHUNK {idx} that preserves all important points, facts, arguments, examples, and nuance from this chunk.
+B) A short heading describing what this chunk contains (e.g., "Introduction", "Methodology", "Case Study", "Analysis", "Conclusion", etc.).
+C) A list of Key Facts & Figures found in this chunk (bulleted).
+D) Any notable quotes or short excerpts.
+E) Any open questions or references that should be cross-referenced with other chunks.
+
+Label the output clearly as "CHUNK {idx} ANALYSIS".
+
+Chunk content follows:
+----------------
+{ch}
+----------------
+"""
+        analysis = call_gemini(prompt_chunk)
+        partial_analyses.append(f"CHUNK {idx} ANALYSIS:\n{analysis.strip()}")
+
+    combined_analyses_text = "\n\n".join(partial_analyses)
+
+    # Combine into one final exhaustive summary
+    combine_prompt = f"""
+You have a set of detailed chunk analyses from a long document (listed below). Use them to produce ONE unified, coherent, and exhaustive summary of the entire original document. The final output MUST preserve every important point, fact, argument, example, and nuance found across the chunks. DO NOT INVENT new facts.
+
+The final summary should be structured as follows:
+
+1) Executive Summary: One concise paragraph that captures the entire document's purpose and conclusions.
+2) Document Structure Reconstruction: Recreate the original document's sections and provide headings (Introduction, Body sections, Results/Arguments, Examples/Case-Studies, Discussion, Conclusion, etc.). For each reconstructed section, provide a thorough, long-form synthesis combining the chunk-level details.
+3) Consolidated Key Facts & Figures: A single, deduplicated bulleted list containing all factual items (numbers, dates, names, data points) encountered in the chunks. If a fact appears in multiple chunks, include it once and list chunk locations in parentheses.
+4) Important Quotes & Locations: A short list of notable quotes/excerpts and the approximate chunk number where they appear.
+5) Assumptions, Limitations, and Open Questions: Combined and organized.
+6) Key Takeaways: Clear bulleted summary of the most important conclusions and actionable points.
+
+Below are the chunk analyses. Use them to reconstruct the full document and ensure no detail is lost:
+
+----------------
+{combined_analyses_text}
+----------------
+
+Now produce the final unified summary described above.
+"""
+    final_summary = call_gemini(combine_prompt)
+    return final_summary.strip()
+
+# ---------------- extract_text and utils ----------------
 def extract_text(path: str, filename: str) -> str:
     name = filename.lower()
     if name.endswith(".pdf"):
@@ -254,6 +325,7 @@ if uploaded_file:
             tmp.write(uploaded_file.getvalue()); tmp_path=tmp.name
         text = extract_text(tmp_path, uploaded_file.name); os.remove(tmp_path)
         if text.strip():
+            # NOTE: this now produces a full, exhaustive analysis (long-form summary)
             summary = summarize_long_text(text)
             title = generate_title(summary)
             st.session_state.summary_text, st.session_state.summary_title = summary, title
