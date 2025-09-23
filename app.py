@@ -202,9 +202,43 @@ def create_ppt(title, points, filename="output.pptx", title_size=30, text_size=2
 st.set_page_config(page_title="PPT Generator", layout="wide")
 st.title("PPT Generator")
 
-defaults = {"messages": [], "outline_chat": None, "summary_text": None, "summary_title": None, "doc_chat_history": []}
+defaults = {
+    "messages": [], 
+    "outline_chat": None, 
+    "summary_text": None, 
+    "summary_title": None, 
+    "doc_chat_history": [],
+    "title_size": 30,
+    "text_size": 22,
+    "font_choice": "Calibri",
+    "title_color": "#5E2A84",
+    "text_color": "#282828",
+    "bg_color": "#FFFFFF"
+}
 for k,v in defaults.items():
     if k not in st.session_state: st.session_state[k]=v
+
+# ✅ Always show customization panel
+st.subheader("🎨 Customize PPT Style")
+col1, col2 = st.columns(2)
+with col1: 
+    st.session_state.title_size = st.number_input("📌 Title Font Size", 10, 100, st.session_state.title_size)
+with col2: 
+    st.session_state.text_size = st.number_input("📝 Text Font Size", 8, 60, st.session_state.text_size)
+
+st.session_state.font_choice = st.selectbox(
+    "🔤 Font Family",
+    ["Calibri","Arial","Times New Roman","Verdana","Georgia","Helvetica","Comic Sans MS"],
+    index=["Calibri","Arial","Times New Roman","Verdana","Georgia","Helvetica","Comic Sans MS"].index(st.session_state.font_choice)
+)
+
+col3, col4, col5 = st.columns(3)
+with col3: 
+    st.session_state.title_color = st.color_picker("🎨 Title Color", st.session_state.title_color)
+with col4: 
+    st.session_state.text_color = st.color_picker("📝 Text Color", st.session_state.text_color)
+with col5: 
+    st.session_state.bg_color = st.color_picker("🌆 Background Color", st.session_state.bg_color)
 
 # Chat history
 for role, content in st.session_state.messages: 
@@ -250,7 +284,7 @@ if prompt := st.chat_input("💬 Type a message..."):
             st.session_state.messages.append(("assistant",reply))
     st.rerun()
 
-# Outline + PPT customization + Feedback
+# Outline + Feedback + PPT Generation
 if st.session_state.outline_chat:
     outline = st.session_state.outline_chat
     st.subheader(f"📝 Preview Outline: {outline['title']}")
@@ -260,16 +294,6 @@ if st.session_state.outline_chat:
 
     new_title = st.text_input("📌 Edit Title", value=outline.get("title","Untitled"))
     feedback_box = st.text_area("✏️ Feedback for outline (optional):")
-
-    st.subheader("🎨 Customize PPT Style")
-    col1, col2 = st.columns(2)
-    with col1: title_size = st.number_input("📌 Title Font Size",10,100,30)
-    with col2: text_size = st.number_input("📝 Text Font Size",8,60,22)
-    font_choice = st.selectbox("🔤 Font Family",["Calibri","Arial","Times New Roman","Verdana","Georgia","Helvetica","Comic Sans MS"])
-    col3, col4, col5 = st.columns(3)
-    with col3: title_color = st.color_picker("🎨 Title Color","#5E2A84")
-    with col4: text_color = st.color_picker("📝 Text Color","#282828")
-    with col5: bg_color = st.color_picker("🌆 Background Color","#FFFFFF")
 
     col6, col7 = st.columns(2)
 
@@ -290,9 +314,12 @@ if st.session_state.outline_chat:
             with st.spinner("Generating PPT..."):
                 filename = f"{sanitize_filename(new_title)}.pptx"
                 create_ppt(new_title, outline["slides"], filename,
-                           title_size=int(title_size), text_size=int(text_size),
-                           font=font_choice, title_color=title_color,
-                           text_color=text_color, background_color=bg_color)
+                           title_size=int(st.session_state.title_size), 
+                           text_size=int(st.session_state.text_size),
+                           font=st.session_state.font_choice, 
+                           title_color=st.session_state.title_color,
+                           text_color=st.session_state.text_color, 
+                           background_color=st.session_state.bg_color)
                 with open(filename,"rb") as f:
                     st.download_button("⬇️ Download PPT", data=f, file_name=filename,
                                        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation")
