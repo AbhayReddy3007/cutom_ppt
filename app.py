@@ -329,7 +329,7 @@ if uploaded_file:
             summary = summarize_long_text(text)
             title = generate_title(summary)
             st.session_state.summary_text, st.session_state.summary_title = summary, title
-            st.success(f"✅ Uploaded! Suggested Title: **{title}**")
+            st.success(f"✅ Uploaded!")
         else:
             st.error("❌ Unsupported, empty, or unreadable file.")
 
