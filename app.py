@@ -265,7 +265,7 @@ def create_ppt(title, points, filename="output.pptx", title_size=30, text_size=2
                     bullet.text, bullet.font.size, bullet.font.name, bullet.font.color.rgb, bullet.level = line.strip(), Pt(text_size), font, hex_to_rgb(text_color), 0
         textbox = slide.shapes.add_textbox(Inches(0.5), Inches(6.8), Inches(8), Inches(0.3))
         tf = textbox.text_frame; p = tf.add_paragraph()
-        p.text, p.font.size, p.font.name, p.font.color.rgb, p.alignment = "Generated with AI", Pt(10), font, RGBColor(150,150,150), PP_ALIGN.RIGHT
+        p.text, p.font.size, p.font.name, p.font.color.rgb, p.alignment = "", Pt(10), font, RGBColor(150,150,150), PP_ALIGN.RIGHT
 
     prs.save(filename); return filename
 
